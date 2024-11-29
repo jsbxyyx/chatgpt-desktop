@@ -48,6 +48,12 @@ class TextMessage(QLabel):
         rect = font_metrics.boundingRect(text)
         self.setMaximumWidth(rect.width() + 30)
 
+    def append_text(self, text):
+        new_text = self.text() + text
+        self.setText(new_text)
+        rect = QFontMetrics(self.font()).boundingRect(new_text)
+        self.setMaximumWidth(rect.width() + 30)
+
     def paintEvent(self, a0: QtGui.QPaintEvent) -> None:
         super(TextMessage, self).paintEvent(a0)
 
@@ -124,11 +130,15 @@ class ImageMessage(QLabel):
             self.open_image_thread = OpenImageThread(self.image_path)
             self.open_image_thread.start()
 
+    def append_text(self, text):
+        pass
+
 
 class BubbleMessage(QWidget):
     def __init__(self, str_content, avatar, Type, is_send=False, parent=None):
         super().__init__(parent)
         self.isSend = is_send
+        self.type = Type
         # self.set
         self.setStyleSheet(
             '''
@@ -161,6 +171,10 @@ class BubbleMessage(QWidget):
             layout.addWidget(self.message, 1)
             layout.addItem(self.spacerItem)
         self.setLayout(layout)
+
+    def append_text(self, text):
+        if self.type == MessageType.Text:
+            self.message.append_text(text)
 
 
 class ScrollAreaContent(QWidget):
@@ -277,3 +291,10 @@ class ChatWidget(QWidget):
         self.scrollArea.update()
         # self.scrollArea.repaint()
         # self.verticalScrollBar().setMaximum(self.scrollAreaWidgetContents.height())
+
+    def clear_message(self) -> None:
+        while (child := self.layout0.takeAt(0)) is not None:
+            if child.widget():
+                child.widget().deleteLater()
+        self.layout0.setSpacing(0)
+        self.layout0.addStretch(1)

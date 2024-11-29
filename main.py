@@ -1,17 +1,21 @@
 import json
 import os
 import platform
+import sqlite3
 import sys
+import traceback
+from datetime import datetime
 from functools import partial
 
 import qdarktheme
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, QThread, Signal
 from PySide6.QtWidgets import QMainWindow, QApplication, QHBoxLayout, QWidget, QVBoxLayout, QSplitter, QPushButton, \
-    QListWidget, QTextEdit, QDialog, QLineEdit, QMessageBox
+    QListWidget, QTextEdit, QDialog, QLineEdit, QListWidgetItem
 from openai import AzureOpenAI
 
 from bubble_message import ChatWidget, BubbleMessage, MessageType
 from toast import Toast
+from tsid import TSID
 from ui import main_ui
 
 os_name = platform.system().lower()
@@ -26,7 +30,23 @@ if os_name == 'linux':
     pass
 
 
+class FuncThread(QThread):
+
+    def __init__(self, parent=None, func=None, *args, **kwargs):
+        QThread.__init__(self, parent)
+        self.func = func
+        self.args = args
+        self.kwargs = kwargs
+
+    def run(self) -> None:
+        if self.func:
+            self.func(*self.args, **self.kwargs)
+
+
 class MainWindow(QMainWindow):
+    bubble_message_signal = Signal(dict)
+
+    c_list_signal = Signal(str)
 
     def __init__(self):
         super(MainWindow, self).__init__()
@@ -36,10 +56,12 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("ChatGPT local")
 
         self.gpt_config = None
+        self.conversation_id = None
         self.messages_array = []
-        self.do_new_chat()
         self.client = None
-        self.init_client()
+        self.db_file = os.getcwd() + '/chatgpt_local.db'
+
+        self.messages_comp = {}
 
         tool_bar = self.addToolBar("toolBar")
         tool_bar.setMovable(False)
@@ -61,8 +83,8 @@ class MainWindow(QMainWindow):
         new_chat_button.clicked.connect(self.do_new_chat)
         left_layout.addWidget(new_chat_button)
 
-        contact_list = QListWidget()
-        left_layout.addWidget(contact_list)
+        self.c_list = QListWidget()
+        left_layout.addWidget(self.c_list)
 
         # 创建右侧布局：包含对话内容、输入框和发送按钮
         right_widget = QWidget()
@@ -99,6 +121,60 @@ class MainWindow(QMainWindow):
         # 设置主部件
         self.setCentralWidget(main_widget)
 
+        self.bubble_message_signal.connect(self.bubble_message_update)
+        self.c_list_signal.connect(self.c_list_update)
+
+        self.init()
+
+    def init(self):
+        self.do_new_chat()
+        self.init_client()
+
+        self.init_database()
+
+        self.init_ui_data()
+
+    def init_ui_data(self):
+        FuncThread(func=self.fetch_c_list).start()
+        pass
+
+    def fetch_c_list(self):
+        conn = sqlite3.connect(self.db_file)
+        c = conn.cursor()
+        try:
+            sql = """
+            select * from chat_message group by cid order by CREATETIME asc 
+            """
+            c.execute(sql)
+            columns = [col[0] for col in c.description]
+            data_ = [dict(zip(columns, row)) for row in c.fetchall()]
+            self.c_list_signal.emit(json.dumps(data_))
+        except Exception as e:
+            print(f'{traceback.format_exc()}')
+        finally:
+            c.close()
+            conn.close()
+
+    def init_database(self):
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+        try:
+            sql = """
+            create table if not exists chat_message (
+                ID INTEGER PRIMARY KEY NOT NULL,
+                CID TEXT NOT NULL,
+                MID TEXT NOT NULL,
+                CONTENT TEXT NOT NULL,
+                CREATETIME DATETIME NOT NULL
+            )
+            """
+            cursor.execute(sql)
+        except Exception as e:
+            print(f'{traceback.format_exc()}')
+        finally:
+            cursor.close()
+            conn.close()
+
     def closeEvent(self, event):
         print('close event')
         QApplication.quit()
@@ -120,6 +196,9 @@ class MainWindow(QMainWindow):
         print(f'do new chat...')
         self.messages_array.clear()
         self.messages_array.append({"role": "system", "content": "你是一个很有用的助理."})
+        self.conversation_id = TSID.create().to_string()
+
+        self.chat_content_widget.clear_message()
         pass
 
     def do_config(self):
@@ -147,8 +226,7 @@ class MainWindow(QMainWindow):
         del_button.clicked.connect(partial(self.del_config, dialog, list_widget))
         layout.addWidget(del_button)
 
-        items = []
-        list_widget.addItems(items)
+        list_widget.addItems([])
         layout.addWidget(list_widget)
 
         self.refresh_config(self, list_widget)
@@ -261,38 +339,102 @@ class MainWindow(QMainWindow):
     def send_message(self):
         message_text = self.input_field.toPlainText()
         if message_text:
-            self.add_message(message_text, is_send=True)
+            input_mid = TSID.create().to_string()
+            self.add_message(message_text, is_send=True, mid=input_mid)
             self.input_field.clear()
 
+            self.insert_message_to_db(input_mid, message_text)
+
+            print(f'问题:{message_text}')
             self.messages_array.append({"role": "user", "content": message_text})
             if self.client is None:
-                Toast(message='请选择配置', parent=self).show();
+                Toast(message='请选择配置', parent=self).show()
                 return
-            response = self.client.chat.completions.create(
-                model='gpt-4o',
-                messages=self.messages_array,
-                stream=False
-            )
-            if response.choices:
-                generated_text = response.choices[0].message.content
-                self.add_message(generated_text, is_send=False)
-                self.messages_array.append({"role": "assistant", "content": generated_text})
-            else:
-                Toast(message=response.error, parent=self).show()
 
+            FuncThread(func=self.chat_completions).start()
 
-    def add_message(self, message, is_send=True):
+    def add_message(self, message, is_send=True, mid=''):
         avatar = 'ui/icon.png' if is_send else 'ui/icon.png'
-        message_comp = BubbleMessage(message, avatar, Type=MessageType.Text, is_send=is_send)
-        self.chat_content_widget.add_message_item(message_comp)
+
+        if message is None:
+            message = ''
+
+        message_comp = self.messages_comp.get(mid, None)
+        if message_comp is None:
+            message_comp = BubbleMessage(message, avatar, Type=MessageType.Text, is_send=is_send)
+            self.chat_content_widget.add_message_item(message_comp)
+            self.messages_comp[mid] = message_comp
+        else:
+            message_comp.append_text(message)
 
         QTimer.singleShot(100, self.scroll_to_bottom)
+
+    def chat_completions(self):
+        completion = self.client.chat.completions.create(
+            model='gpt-4o',
+            messages=self.messages_array,
+            stream=True
+        )
+        print('回答:', end='')
+        generated_text = ''
+        mid = None
+        for chunk in completion:
+            if len(chunk.choices) > 0:
+                chunk_text = chunk.choices[0].delta.content
+                if chunk_text is None:
+                    chunk_text = ''
+                print(chunk_text, end='')
+                generated_text += chunk_text
+                self.bubble_message_signal.emit({
+                    'text': chunk_text,
+                    'is_send': False,
+                    'mid': chunk.id,
+                })
+                if mid is None:
+                    mid = chunk.id
+        if mid is not None:
+            self.messages_array.append({"role": "assistant", "content": generated_text})
+        print()
+
+        self.insert_message_to_db(mid, generated_text)
+
+    def insert_message_to_db(self, mid, content):
+        if mid is not None:
+            conn = sqlite3.connect(self.db_file)
+            c = conn.cursor()
+            try:
+                sql = """insert into chat_message(ID, CID, MID, CONTENT, CREATETIME) values (?,?,?,?,?)"""
+                c.execute(sql, (TSID.create().number, self.conversation_id, mid, content, datetime.now()))
+                conn.commit()
+            except Exception as e:
+                print(f'{traceback.format_exc()}')
+            finally:
+                c.close()
+                conn.close()
+
+    def c_list_update(self, data: str):
+        result = json.loads(data)
+        self.c_list.clear()
+        for row in result:
+            cid = row['CID']
+            content = row['CONTENT'][0: 20]
+            item = QListWidgetItem()
+            item.setText(content)
+            item.setData(QListWidgetItem.ItemType.UserType, cid)
+            self.c_list.addItem(item)
+        pass
+
+    def bubble_message_update(self, data: dict):
+        text = data['text']
+        is_send = data['is_send']
+        mid = data['mid']
+        self.add_message(text, is_send, mid)
 
     def scroll_to_bottom(self):
         self.chat_content_widget.set_scroll_bar_last()
 
     def read_gpt_config(self):
-        config_path = os.getcwd() + "/.gptconfig"
+        config_path = os.getcwd() + "/chatgpt_local.config"
         json_data = {}
         with open(config_path, 'r+', encoding='utf-8') as f:
             content = f.read()
@@ -302,7 +444,7 @@ class MainWindow(QMainWindow):
         return json_data
 
     def write_gpt_config(self, config):
-        config_path = os.getcwd() + "/.gptconfig"
+        config_path = os.getcwd() + "/chatgpt_local.config"
         with open(config_path, 'w+', encoding='utf-8') as f:
             f.write(json.dumps(config))
 
