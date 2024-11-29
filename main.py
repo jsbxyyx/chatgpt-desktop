@@ -202,7 +202,12 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         print('close event')
-        QApplication.quit()
+        ret = QMessageBox.warning(self, '提示', '确认退出?',
+                                  buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if ret == QMessageBox.StandardButton.Yes:
+            QApplication.quit()
+        else:
+            event.ignore()
         pass
 
     def init_client(self):
