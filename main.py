@@ -32,21 +32,23 @@ if os_name == 'linux':
 
 class FuncThread(QThread):
 
-    def __init__(self, parent=None, func=None, *args, **kwargs):
+    def __init__(self, parent=None, target=None, args=(), kwargs={}):
         QThread.__init__(self, parent)
-        self.func = func
+        self.target = target
         self.args = args
         self.kwargs = kwargs
 
     def run(self) -> None:
-        if self.func:
-            self.func(*self.args, **self.kwargs)
+        if self.target:
+            self.target(*self.args, **self.kwargs)
 
 
 class MainWindow(QMainWindow):
     bubble_message_signal = Signal(dict)
 
     c_list_signal = Signal(str)
+
+    chat_signal = Signal(str)
 
     def __init__(self):
         super(MainWindow, self).__init__()
@@ -84,6 +86,7 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(new_chat_button)
 
         self.c_list = QListWidget()
+        self.c_list.doubleClicked.connect(self.c_list_double_clicked)
         left_layout.addWidget(self.c_list)
 
         # 创建右侧布局：包含对话内容、输入框和发送按钮
@@ -123,6 +126,7 @@ class MainWindow(QMainWindow):
 
         self.bubble_message_signal.connect(self.bubble_message_update)
         self.c_list_signal.connect(self.c_list_update)
+        self.chat_signal.connect(self.chat_update)
 
         self.init()
 
@@ -135,7 +139,7 @@ class MainWindow(QMainWindow):
         self.init_ui_data()
 
     def init_ui_data(self):
-        FuncThread(func=self.fetch_c_list).start()
+        FuncThread(target=self.fetch_c_list).start()
         pass
 
     def fetch_c_list(self):
@@ -155,6 +159,26 @@ class MainWindow(QMainWindow):
             c.close()
             conn.close()
 
+    def fetch_chat(self, cid):
+        conn = sqlite3.connect(self.db_file)
+        c = conn.cursor()
+        try:
+            sql = """
+                    select * from chat_message where CID = ? order by CREATETIME asc 
+                    """
+            c.execute(sql, (cid,))
+            columns = [col[0] for col in c.description]
+            data_ = [dict(zip(columns, row)) for row in c.fetchall()]
+            self.chat_signal.emit(json.dumps({
+                'cid': cid,
+                'data': data_
+            }))
+        except Exception as e:
+            print(f'{traceback.format_exc()}')
+        finally:
+            c.close()
+            conn.close()
+
     def init_database(self):
         conn = sqlite3.connect(self.db_file)
         cursor = conn.cursor()
@@ -165,6 +189,7 @@ class MainWindow(QMainWindow):
                 CID TEXT NOT NULL,
                 MID TEXT NOT NULL,
                 CONTENT TEXT NOT NULL,
+                SEND INTEGER NOT NULL,
                 CREATETIME DATETIME NOT NULL
             )
             """
@@ -351,7 +376,7 @@ class MainWindow(QMainWindow):
                 Toast(message='请选择配置', parent=self).show()
                 return
 
-            FuncThread(func=self.chat_completions).start()
+            FuncThread(target=self.chat_completions).start()
 
     def add_message(self, message, is_send=True, mid=''):
         avatar = 'ui/icon.png' if is_send else 'ui/icon.png'
@@ -411,6 +436,32 @@ class MainWindow(QMainWindow):
             finally:
                 c.close()
                 conn.close()
+
+    def c_list_double_clicked(self, qModelIndex):
+        item = self.c_list.item(qModelIndex.row())
+        cid = item.data(QListWidgetItem.ItemType.UserType)
+        print(f'c_list double clicked : {cid}')
+        FuncThread(target=self.fetch_chat, args=(cid,)).start()
+        pass
+
+    def chat_update(self, data: str):
+        result = json.loads(data)
+        cid = result['cid']
+        data_ = result['data']
+        print(f'chat update : {cid}')
+        self.messages_array.clear()
+        self.conversation_id = cid
+        self.chat_content_widget.clear_message()
+        for row in data_:
+            send = row['SEND']
+            content = row['CONTENT']
+            mid = row['MID']
+            self.add_message(content, is_send=True if send == 1 else False, mid=mid)
+            if send == 1:
+                self.messages_array.append({"role": "user", "content": content})
+            else:
+                self.messages_array.append({"role": "assistant", "content": content})
+        pass
 
     def c_list_update(self, data: str):
         result = json.loads(data)
