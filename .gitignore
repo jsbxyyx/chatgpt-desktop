@@ -163,3 +163,4 @@ cython_debug/
 #
 chatgpt_local.config
 chatgpt_local.db
+out/

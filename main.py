@@ -30,7 +30,7 @@ if os_name == 'linux':
     pass
 
 
-class FuncThread(QThread):
+class WorkerThread(QThread):
 
     def __init__(self, parent=None, target=None, args=(), kwargs={}):
         QThread.__init__(self, parent)
@@ -139,7 +139,9 @@ class MainWindow(QMainWindow):
         self.init_ui_data()
 
     def init_ui_data(self):
-        FuncThread(target=self.fetch_c_list).start()
+        # fix: QThread: Destroyed while thread is still running
+        self.wt = WorkerThread(target=self.fetch_c_list)
+        self.wt.start()
         pass
 
     def fetch_c_list(self):
@@ -386,7 +388,8 @@ class MainWindow(QMainWindow):
                 Toast(message='请选择配置', parent=self).show()
                 return
 
-            FuncThread(target=self.chat_completions).start()
+            self.wt = WorkerThread(target=self.chat_completions)
+            self.wt.start()
 
     def add_message(self, message, is_send=True, mid=''):
         avatar = 'ui/icon.png' if is_send else 'ui/icon.png'
@@ -451,7 +454,8 @@ class MainWindow(QMainWindow):
         item = self.c_list.item(qModelIndex.row())
         cid = item.data(QListWidgetItem.ItemType.UserType)
         print(f'c_list double clicked : {cid}')
-        FuncThread(target=self.fetch_chat, args=(cid,)).start()
+        self.wt = WorkerThread(target=self.fetch_chat, args=(cid,))
+        self.wt.start()
         pass
 
     def chat_update(self, data: str):
@@ -497,8 +501,11 @@ class MainWindow(QMainWindow):
         self.chat_content_widget.set_scroll_bar_last()
 
     def read_gpt_config(self):
-        config_path = os.getcwd() + "/chatgpt_local.config"
         json_data = {}
+        config_path = os.getcwd() + "/chatgpt_local.config"
+        if not os.path.exists(config_path):
+            self.write_gpt_config({})
+            return json_data
         with open(config_path, 'r+', encoding='utf-8') as f:
             content = f.read()
             if content.strip() == '':
