@@ -429,8 +429,8 @@ class MainWindow(QMainWindow):
             conn = sqlite3.connect(self.db_file)
             c = conn.cursor()
             try:
-                sql = """insert into chat_message(ID, CID, MID, CONTENT, CREATETIME) values (?,?,?,?,?)"""
-                c.execute(sql, (TSID.create().number, self.conversation_id, mid, content, datetime.now()))
+                sql = """insert into chat_message(ID, CID, MID, CONTENT, SEND, CREATETIME) values (?,?,?,?,?,?)"""
+                c.execute(sql, (TSID.create().number, self.conversation_id, mid, content, send, datetime.now()))
                 conn.commit()
             except Exception as e:
                 print(f'{traceback.format_exc()}')
