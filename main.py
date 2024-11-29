@@ -221,9 +221,10 @@ class MainWindow(QMainWindow):
         print(f'do new chat...')
         self.messages_array.clear()
         self.messages_array.append({"role": "system", "content": "你是一个很有用的助理."})
-        self.conversation_id = TSID.create().to_string()
-
+        self.messages_comp.clear()
         self.chat_content_widget.clear_message()
+
+        self.conversation_id = TSID.create().to_string()
         pass
 
     def do_config(self):
@@ -368,7 +369,7 @@ class MainWindow(QMainWindow):
             self.add_message(message_text, is_send=True, mid=input_mid)
             self.input_field.clear()
 
-            self.insert_message_to_db(input_mid, message_text)
+            self.insert_message_to_db(input_mid, message_text, 1)
 
             print(f'问题:{message_text}')
             self.messages_array.append({"role": "user", "content": message_text})
@@ -421,9 +422,9 @@ class MainWindow(QMainWindow):
             self.messages_array.append({"role": "assistant", "content": generated_text})
         print()
 
-        self.insert_message_to_db(mid, generated_text)
+        self.insert_message_to_db(mid, generated_text, 0)
 
-    def insert_message_to_db(self, mid, content):
+    def insert_message_to_db(self, mid, content, send):
         if mid is not None:
             conn = sqlite3.connect(self.db_file)
             c = conn.cursor()
@@ -449,8 +450,10 @@ class MainWindow(QMainWindow):
         cid = result['cid']
         data_ = result['data']
         print(f'chat update : {cid}')
-        self.messages_array.clear()
         self.conversation_id = cid
+        self.messages_array.clear()
+        self.messages_array.append({"role": "system", "content": "你是一个很有用的助理."})
+        self.messages_comp.clear()
         self.chat_content_widget.clear_message()
         for row in data_:
             send = row['SEND']
