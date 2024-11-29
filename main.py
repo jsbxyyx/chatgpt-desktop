@@ -10,7 +10,7 @@ from functools import partial
 import qdarktheme
 from PySide6.QtCore import QTimer, QThread, Signal
 from PySide6.QtWidgets import QMainWindow, QApplication, QHBoxLayout, QWidget, QVBoxLayout, QSplitter, QPushButton, \
-    QListWidget, QTextEdit, QDialog, QLineEdit, QListWidgetItem
+    QListWidget, QTextEdit, QDialog, QLineEdit, QListWidgetItem, QMessageBox
 from openai import AzureOpenAI
 
 from bubble_message import ChatWidget, BubbleMessage, MessageType
@@ -354,12 +354,16 @@ class MainWindow(QMainWindow):
 
     def del_config(self, parent: QDialog, list_widget: QListWidget):
         item = list_widget.currentItem()
-        key = item.text()
-        print(f"delete config : {key}")
-        json_data = self.read_gpt_config()
-        del json_data[key]
-        self.write_gpt_config(json_data)
-        self.refresh_config(list_widget)
+        if item is not None:
+            ret = QMessageBox.warning(parent, '提示', '确认删除?',
+                                      buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if ret == QMessageBox.StandardButton.Yes:
+                key = item.text()
+                print(f"delete config : {key}")
+                json_data = self.read_gpt_config()
+                del json_data[key]
+                self.write_gpt_config(json_data)
+                self.refresh_config(list_widget)
         pass
 
     def send_message(self):
