@@ -10,8 +10,8 @@ from functools import partial
 import qdarktheme
 from PySide6.QtCore import QTimer, QThread, Signal
 from PySide6.QtWidgets import QMainWindow, QApplication, QHBoxLayout, QWidget, QVBoxLayout, QSplitter, QPushButton, \
-    QListWidget, QTextEdit, QDialog, QLineEdit, QListWidgetItem, QMessageBox
-from openai import AzureOpenAI
+    QListWidget, QTextEdit, QDialog, QLineEdit, QListWidgetItem, QMessageBox, QComboBox
+from openai import AzureOpenAI, OpenAI
 
 from bubble_message import ChatWidget, BubbleMessage, MessageType
 from toast import Toast
@@ -218,11 +218,21 @@ class MainWindow(QMainWindow):
             if len(json_data.keys()) > 0:
                 self.gpt_config = next(iter(json_data.values()))
         if self.gpt_config is not None:
-            self.client = AzureOpenAI(
-                api_key=self.gpt_config['key'],
-                azure_endpoint=self.gpt_config['endpoint'],
-                api_version='2024-02-01'
-            )
+            try:
+                if self.gpt_config['type'] == 0:
+                    self.client = AzureOpenAI(
+                        api_key=self.gpt_config['key'],
+                        azure_endpoint=self.gpt_config['endpoint'],
+                        api_version='2024-02-01'
+                    )
+                else:
+                    self.client = OpenAI(
+                        api_key=self.gpt_config['key'],
+                        base_url=self.gpt_config['endpoint'],
+                    )
+            except Exception as e:
+                print(f'{traceback.format_exc()}')
+                Toast(message='配置错误', parent=self).show()
 
     def do_new_chat(self):
         print(f'do new chat...')
@@ -299,24 +309,29 @@ class MainWindow(QMainWindow):
         name.setText('' if config.get('name', None) is None else config.get('name'))
         layout.addWidget(name)
 
+        type_combo = QComboBox()
+        type_combo.addItem("Azure")
+        type_combo.addItem("通用")
+        layout.addWidget(type_combo)
+
         endpoint = QLineEdit()
-        endpoint.setPlaceholderText("AZURE_OPENAI_ENDPOINT")
+        endpoint.setPlaceholderText("OPENAI_ENDPOINT")
         endpoint.setText('' if config.get('endpoint', None) is None else config.get('endpoint'))
         layout.addWidget(endpoint)
 
         key = QLineEdit()
-        key.setPlaceholderText("AZURE_OPENAI_KEY")
+        key.setPlaceholderText("OPENAI_KEY")
         key.setText('' if config.get('key', None) is None else config.get('key'))
         layout.addWidget(key)
 
         ok_button = QPushButton("保存")
-        ok_button.clicked.connect(partial(self.add_config, dialog, name, endpoint, key, list_widget))
+        ok_button.clicked.connect(partial(self.add_config, dialog, name, type_combo, endpoint, key, list_widget))
         layout.addWidget(ok_button)
 
         dialog.exec()
         pass
 
-    def add_config(self, dialog: QDialog, name_q: QLineEdit, endpoint_q: QLineEdit, key_q: QLineEdit,
+    def add_config(self, dialog: QDialog, name_q: QLineEdit, type_q: QComboBox, endpoint_q: QLineEdit, key_q: QLineEdit,
                    list_widget: QListWidget):
         name = name_q.text()
         endpoint = endpoint_q.text()
@@ -332,6 +347,7 @@ class MainWindow(QMainWindow):
         json_data = self.read_gpt_config()
         json_data[name] = {
             'name': name,
+            'type': type_q.currentIndex(),
             'endpoint': endpoint,
             'key': key,
         }
@@ -339,7 +355,7 @@ class MainWindow(QMainWindow):
 
         dialog.close()
 
-        self.refresh_config(list_widget)
+        self.refresh_config(self, list_widget)
 
     def choose_config(self, dialog: QDialog, list_widget: QListWidget):
         item = list_widget.currentItem()
@@ -370,7 +386,7 @@ class MainWindow(QMainWindow):
                 json_data = self.read_gpt_config()
                 del json_data[key]
                 self.write_gpt_config(json_data)
-                self.refresh_config(list_widget)
+                self.refresh_config(parent, list_widget)
         pass
 
     def send_message(self):
