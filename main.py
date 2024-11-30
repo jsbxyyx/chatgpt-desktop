@@ -98,6 +98,11 @@ class MainWindow(QMainWindow):
         right_layout = QVBoxLayout()
         right_widget.setLayout(right_layout)
 
+        self.model_field = QLineEdit()
+        self.model_field.setText("gpt-4o")
+        self.model_field.setPlaceholderText("请填写模型名称。例如：gpt-4o")
+        right_layout.addWidget(self.model_field)
+
         self.chat_content_widget = ChatWidget()
         right_layout.addWidget(self.chat_content_widget)
 
@@ -402,6 +407,10 @@ class MainWindow(QMainWindow):
         pass
 
     def send_message(self):
+        model = self.get_model()
+        if model is None or model.strip() == '':
+            Toast(message="请填写模型名称", parent=self).show()
+            return
         message_text = self.input_field.toPlainText()
         if message_text:
             input_mid = TSID.create().to_string()
@@ -419,7 +428,7 @@ class MainWindow(QMainWindow):
             if len(self.messages_array) < 3:
                 self.init_c_list()
 
-            self.wt = WorkerThread(target=self.chat_completions)
+            self.wt = WorkerThread(target=self.chat_completions, args=(model,))
             self.wt.start()
 
     def add_message(self, message, is_send=True, mid=''):
@@ -438,9 +447,12 @@ class MainWindow(QMainWindow):
 
         QTimer.singleShot(100, self.scroll_to_bottom)
 
-    def chat_completions(self):
+    def get_model(self):
+        return self.model_field.text()
+
+    def chat_completions(self, model):
         completion = self.client.chat.completions.create(
-            model='gpt-4o',
+            model=model,
             messages=self.messages_array,
             stream=True
         )
