@@ -4,3 +4,5 @@
 # 功能
 
 [x] 支持Azure OpenAI
+
+[x] 支持OpenAI

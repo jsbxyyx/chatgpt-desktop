@@ -55,13 +55,15 @@ class MainWindow(QMainWindow):
         self.ui = main_ui.Ui_MainWindow()
         self.ui.setupUi(self)
 
+        home_dir = os.path.expanduser('~')
+
         self.setWindowTitle("ChatGPT local")
 
         self.gpt_config = None
         self.conversation_id = None
         self.messages_array = []
         self.client = None
-        self.db_file = os.getcwd() + '/chatgpt_local.db'
+        self.db_file = home_dir + '/chatgpt_local.db'
 
         self.messages_comp = {}
 
@@ -248,7 +250,7 @@ class MainWindow(QMainWindow):
         print(f'do config...')
         dialog = QDialog(self)
         dialog.setWindowTitle("配置信息")
-        dialog.setGeometry(150, 150, 300, 300)
+        # dialog.setGeometry(150, 150, 300, 300)
         layout = QVBoxLayout(dialog)
 
         list_widget = QListWidget()
@@ -301,7 +303,8 @@ class MainWindow(QMainWindow):
         print(f'add config...')
         dialog = QDialog(self)
         dialog.setWindowTitle("添加配置")
-        dialog.setGeometry(150, 150, 300, 300)
+        dialog.setMinimumSize(400, 300)
+        # dialog.setGeometry(150, 150, 300, 300)
         layout = QVBoxLayout(dialog)
 
         name = QLineEdit()
@@ -359,6 +362,9 @@ class MainWindow(QMainWindow):
 
     def choose_config(self, dialog: QDialog, list_widget: QListWidget):
         item = list_widget.currentItem()
+        if item is None:
+            Toast(message='请选择配置', parent=dialog).show()
+            return
         key = item.text()
         print(f"choose config : {key}")
 
@@ -377,16 +383,18 @@ class MainWindow(QMainWindow):
 
     def del_config(self, parent: QDialog, list_widget: QListWidget):
         item = list_widget.currentItem()
-        if item is not None:
-            ret = QMessageBox.warning(parent, '提示', '确认删除?',
-                                      buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-            if ret == QMessageBox.StandardButton.Yes:
-                key = item.text()
-                print(f"delete config : {key}")
-                json_data = self.read_gpt_config()
-                del json_data[key]
-                self.write_gpt_config(json_data)
-                self.refresh_config(parent, list_widget)
+        if item is None:
+            Toast(message='请选择配置', parent=parent).show()
+            return
+        ret = QMessageBox.warning(parent, '提示', '确认删除?',
+                                  buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if ret == QMessageBox.StandardButton.Yes:
+            key = item.text()
+            print(f"delete config : {key}")
+            json_data = self.read_gpt_config()
+            del json_data[key]
+            self.write_gpt_config(json_data)
+            self.refresh_config(parent, list_widget)
         pass
 
     def send_message(self):
@@ -517,8 +525,9 @@ class MainWindow(QMainWindow):
         self.chat_content_widget.set_scroll_bar_last()
 
     def read_gpt_config(self):
+        home_dir = os.path.expanduser('~')
         json_data = {}
-        config_path = os.getcwd() + "/chatgpt_local.config"
+        config_path = home_dir + "/chatgpt_local.config"
         if not os.path.exists(config_path):
             self.write_gpt_config({})
             return json_data
@@ -530,7 +539,8 @@ class MainWindow(QMainWindow):
         return json_data
 
     def write_gpt_config(self, config):
-        config_path = os.getcwd() + "/chatgpt_local.config"
+        home_dir = os.path.expanduser('~')
+        config_path = home_dir + "/chatgpt_local.config"
         with open(config_path, 'w+', encoding='utf-8') as f:
             f.write(json.dumps(config))
 
