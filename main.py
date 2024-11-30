@@ -84,7 +84,7 @@ class MainWindow(QMainWindow):
         left_layout = QVBoxLayout(left_widget)
 
         new_chat_button = QPushButton("新对话")
-        new_chat_button.clicked.connect(self.do_new_chat)
+        new_chat_button.clicked.connect(self.init_new_chat)
         left_layout.addWidget(new_chat_button)
 
         self.c_list = QListWidget()
@@ -133,14 +133,13 @@ class MainWindow(QMainWindow):
         self.init()
 
     def init(self):
-        self.do_new_chat()
+        self.init_new_chat()
         self.init_client()
 
         self.init_database()
+        self.init_c_list()
 
-        self.init_ui_data()
-
-    def init_ui_data(self):
+    def init_c_list(self):
         # fix: QThread: Destroyed while thread is still running
         self.wt = WorkerThread(target=self.fetch_c_list)
         self.wt.start()
@@ -236,14 +235,17 @@ class MainWindow(QMainWindow):
                 print(f'{traceback.format_exc()}')
                 Toast(message='配置错误', parent=self).show()
 
-    def do_new_chat(self):
+    def init_new_chat(self, conversation_id=None):
         print(f'do new chat...')
         self.messages_array.clear()
         self.messages_array.append({"role": "system", "content": "你是一个很有用的助理."})
         self.messages_comp.clear()
         self.chat_content_widget.clear_message()
 
-        self.conversation_id = TSID.create().to_string()
+        if conversation_id is None:
+            self.conversation_id = TSID.create().to_string()
+        else:
+            self.conversation_id = conversation_id
         pass
 
     def do_config(self):
@@ -412,6 +414,9 @@ class MainWindow(QMainWindow):
                 Toast(message='请选择配置', parent=self).show()
                 return
 
+            if len(self.messages_array) < 3:
+                self.init_c_list()
+
             self.wt = WorkerThread(target=self.chat_completions)
             self.wt.start()
 
@@ -487,11 +492,7 @@ class MainWindow(QMainWindow):
         cid = result['cid']
         data_ = result['data']
         print(f'chat update : {cid}')
-        self.conversation_id = cid
-        self.messages_array.clear()
-        self.messages_array.append({"role": "system", "content": "你是一个很有用的助理."})
-        self.messages_comp.clear()
-        self.chat_content_widget.clear_message()
+        self.init_new_chat(cid)
         for row in data_:
             send = row['SEND']
             content = row['CONTENT']
