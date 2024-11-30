@@ -16,7 +16,9 @@ from openai import AzureOpenAI, OpenAI
 from bubble_message import ChatWidget, BubbleMessage, MessageType
 from toast import Toast
 from tsid import TSID
-from ui import main_ui
+from ui import main_ui, main_rc
+
+___not_use = main_rc.qt_resource_name
 
 os_name = platform.system().lower()
 print(f"os: {os_name}")
@@ -421,7 +423,7 @@ class MainWindow(QMainWindow):
             self.wt.start()
 
     def add_message(self, message, is_send=True, mid=''):
-        avatar = 'ui/icon.png' if is_send else 'ui/icon.png'
+        avatar = ':ui/avatar.png' if is_send else ':ui/icon.png'
 
         if message is None:
             message = ''
