@@ -348,7 +348,7 @@ class MainWindow(QMainWindow):
         name = name_q.text()
         endpoint = endpoint_q.text()
         key = key_q.text()
-        print(f'add config : {name} {endpoint} {key}')
+        print(f'add config : {name}')
 
         if name is None or name.strip() == '' \
                 or endpoint is None or endpoint.strip() == '' \
