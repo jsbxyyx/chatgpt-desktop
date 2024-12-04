@@ -20,8 +20,15 @@ from ui import main_ui, main_rc
 
 ___not_use = main_rc.qt_resource_name
 
+from loguru import logger
+
+home_dir = os.path.expanduser('~')
+
+logger.add(home_dir + "/chatgpt.log", rotation="50 MB", format="{time:YYYY-MM-DD HH:mm:ss.SSSZZ} | {level} | {message}",
+           level="DEBUG")
+
 os_name = platform.system().lower()
-print(f"os: {os_name}")
+logger.debug(f"os: {os_name}")
 if os_name == 'linux':
     # apt-get install libqt5gui5 libqt5widgets5 libqt5core5a
     # os.environ['QT_QPA_PLATFORM'] = 'xcb'
@@ -34,15 +41,19 @@ if os_name == 'linux':
 
 class WorkerThread(QThread):
 
-    def __init__(self, parent=None, target=None, args=(), kwargs={}):
+    def __init__(self, parent=None, target=None, args=(), kwargs=None):
         QThread.__init__(self, parent)
-        self.target = target
-        self.args = args
-        self.kwargs = kwargs
+        self._target = target
+        self._args = args
+        self._kwargs = {} if kwargs is None else kwargs
 
     def run(self) -> None:
-        if self.target:
-            self.target(*self.args, **self.kwargs)
+        if self._target:
+            try:
+                self._target(*self._args, **self._kwargs)
+            except Exception as e:
+                logger.error(f'{traceback.format_exc()}')
+                raise e
 
 
 class MainWindow(QMainWindow):
@@ -56,8 +67,6 @@ class MainWindow(QMainWindow):
         super(MainWindow, self).__init__()
         self.ui = main_ui.Ui_MainWindow()
         self.ui.setupUi(self)
-
-        home_dir = os.path.expanduser('~')
 
         self.setWindowTitle("ChatGPT local")
 
@@ -86,7 +95,7 @@ class MainWindow(QMainWindow):
         left_layout = QVBoxLayout(left_widget)
 
         new_chat_button = QPushButton("新对话")
-        new_chat_button.clicked.connect(self.init_new_chat)
+        new_chat_button.clicked.connect(partial(self.init_new_chat, None))
         left_layout.addWidget(new_chat_button)
 
         self.c_list = QListWidget()
@@ -164,7 +173,7 @@ class MainWindow(QMainWindow):
             data_ = [dict(zip(columns, row)) for row in c.fetchall()]
             self.c_list_signal.emit(json.dumps(data_))
         except Exception as e:
-            print(f'{traceback.format_exc()}')
+            logger.error(f'{traceback.format_exc()}')
         finally:
             c.close()
             conn.close()
@@ -184,7 +193,7 @@ class MainWindow(QMainWindow):
                 'data': data_
             }))
         except Exception as e:
-            print(f'{traceback.format_exc()}')
+            logger.error(f'{traceback.format_exc()}')
         finally:
             c.close()
             conn.close()
@@ -205,13 +214,13 @@ class MainWindow(QMainWindow):
             """
             cursor.execute(sql)
         except Exception as e:
-            print(f'{traceback.format_exc()}')
+            logger.error(f'{traceback.format_exc()}')
         finally:
             cursor.close()
             conn.close()
 
     def closeEvent(self, event):
-        print('close event')
+        logger.info('close event')
         ret = QMessageBox.warning(self, '提示', '确认退出?',
                                   buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if ret == QMessageBox.StandardButton.Yes:
@@ -239,11 +248,11 @@ class MainWindow(QMainWindow):
                         base_url=self.gpt_config['endpoint'],
                     )
             except Exception as e:
-                print(f'{traceback.format_exc()}')
+                logger.error(f'{traceback.format_exc()}')
                 Toast(message='配置错误', parent=self).show()
 
     def init_new_chat(self, conversation_id=None):
-        print(f'do new chat...')
+        logger.info('do new chat...')
         self.messages_array.clear()
         self.messages_array.append({"role": "system", "content": "你是一个很有用的助理."})
         self.messages_comp.clear()
@@ -251,12 +260,14 @@ class MainWindow(QMainWindow):
 
         if conversation_id is None:
             self.conversation_id = TSID.create().to_string()
+            logger.info(f'new conversation id: {self.conversation_id}')
         else:
             self.conversation_id = conversation_id
+            logger.info(f'choose conversation id: {self.conversation_id}')
         pass
 
     def do_config(self):
-        print(f'do config...')
+        logger.info('do config...')
         dialog = QDialog(self)
         dialog.setWindowTitle("配置信息")
         # dialog.setGeometry(150, 150, 300, 300)
@@ -309,7 +320,7 @@ class MainWindow(QMainWindow):
         pass
 
     def add_config_ui(self, parent: QDialog, list_widget: QListWidget, config={}):
-        print(f'add config...')
+        logger.info(f'add config...')
         dialog = QDialog(self)
         dialog.setWindowTitle("添加配置")
         dialog.setMinimumSize(400, 300)
@@ -348,7 +359,7 @@ class MainWindow(QMainWindow):
         name = name_q.text()
         endpoint = endpoint_q.text()
         key = key_q.text()
-        print(f'add config : {name}')
+        logger.info(f'add config : {name}')
 
         if name is None or name.strip() == '' \
                 or endpoint is None or endpoint.strip() == '' \
@@ -375,7 +386,7 @@ class MainWindow(QMainWindow):
             Toast(message='请选择配置', parent=dialog).show()
             return
         key = item.text()
-        print(f"choose config : {key}")
+        logger.info(f'choose config : {key}')
 
         json_data = self.read_gpt_config()
         gpt_config = json_data[key]
@@ -399,7 +410,7 @@ class MainWindow(QMainWindow):
                                   buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if ret == QMessageBox.StandardButton.Yes:
             key = item.text()
-            print(f"delete config : {key}")
+            logger.info(f'delete config : {key}')
             json_data = self.read_gpt_config()
             del json_data[key]
             self.write_gpt_config(json_data)
@@ -419,7 +430,7 @@ class MainWindow(QMainWindow):
 
             self.insert_message_to_db(input_mid, message_text, 1)
 
-            print(f'问题:{message_text}')
+            logger.debug(f'问题:{message_text}')
             self.messages_array.append({"role": "user", "content": message_text})
             if self.client is None:
                 Toast(message='请选择配置', parent=self).show()
@@ -456,7 +467,6 @@ class MainWindow(QMainWindow):
             messages=self.messages_array,
             stream=True
         )
-        print('回答:', end='')
         generated_text = ''
         mid = None
         for chunk in completion:
@@ -464,7 +474,6 @@ class MainWindow(QMainWindow):
                 chunk_text = chunk.choices[0].delta.content
                 if chunk_text is None:
                     chunk_text = ''
-                print(chunk_text, end='')
                 generated_text += chunk_text
                 self.bubble_message_signal.emit({
                     'text': chunk_text,
@@ -475,7 +484,7 @@ class MainWindow(QMainWindow):
                     mid = chunk.id
         if mid is not None:
             self.messages_array.append({"role": "assistant", "content": generated_text})
-        print()
+            logger.debug(f'回答：{generated_text}')
 
         self.insert_message_to_db(mid, generated_text, 0)
 
@@ -488,7 +497,7 @@ class MainWindow(QMainWindow):
                 c.execute(sql, (TSID.create().number, self.conversation_id, mid, content, send, datetime.now()))
                 conn.commit()
             except Exception as e:
-                print(f'{traceback.format_exc()}')
+                logger.error(f'{traceback.format_exc()}')
             finally:
                 c.close()
                 conn.close()
@@ -496,7 +505,7 @@ class MainWindow(QMainWindow):
     def c_list_double_clicked(self, qModelIndex):
         item = self.c_list.item(qModelIndex.row())
         cid = item.data(QListWidgetItem.ItemType.UserType)
-        print(f'c_list double clicked : {cid}')
+        logger.info(f'c_list double clicked : {cid}')
         self.wt = WorkerThread(target=self.fetch_chat, args=(cid,))
         self.wt.start()
         pass
@@ -505,7 +514,7 @@ class MainWindow(QMainWindow):
         result = json.loads(data)
         cid = result['cid']
         data_ = result['data']
-        print(f'chat update : {cid}')
+        logger.info(f'chat update : {cid}')
         self.init_new_chat(cid)
         for row in data_:
             send = row['SEND']
@@ -540,7 +549,6 @@ class MainWindow(QMainWindow):
         self.chat_content_widget.set_scroll_bar_last()
 
     def read_gpt_config(self):
-        home_dir = os.path.expanduser('~')
         json_data = {}
         config_path = home_dir + "/chatgpt_local.config"
         if not os.path.exists(config_path):
@@ -554,7 +562,6 @@ class MainWindow(QMainWindow):
         return json_data
 
     def write_gpt_config(self, config):
-        home_dir = os.path.expanduser('~')
         config_path = home_dir + "/chatgpt_local.config"
         with open(config_path, 'w+', encoding='utf-8') as f:
             f.write(json.dumps(config))

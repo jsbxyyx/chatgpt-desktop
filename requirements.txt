@@ -3,4 +3,5 @@ requests==2.32.3
 openai==1.55.3
 pillow==11.0.0
 pyqtdarktheme==2.1.0 # --ignore-requires-python
+loguru==0.7.2
 nuitka==2.4.8
