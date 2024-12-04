@@ -558,13 +558,15 @@ class MainWindow(QMainWindow):
 
     def delete_clist_button_clicked(self):
         item = self.c_list.currentItem()
-        if item is not None:
-            ret = QMessageBox.warning(self, '提示', '确认删除?',
-                                      buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-            if ret == QMessageBox.StandardButton.Yes:
-                cid = item.data(QListWidgetItem.ItemType.UserType)
-                self.wt = WorkerThread(target=self.delete_c_list, args=(cid,))
-                self.wt.start()
+        if item is None:
+            Toast(message="请选择要删除的对话", parent=self).show()
+            return
+        ret = QMessageBox.warning(self, '提示', f'确认删除对话【{item.text()}】?',
+                                  buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if ret == QMessageBox.StandardButton.Yes:
+            cid = item.data(QListWidgetItem.ItemType.UserType)
+            self.wt = WorkerThread(target=self.delete_c_list, args=(cid,))
+            self.wt.start()
 
     def c_list_double_clicked(self, qModelIndex):
         item = self.c_list.item(qModelIndex.row())
