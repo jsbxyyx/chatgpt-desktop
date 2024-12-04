@@ -8,9 +8,9 @@ from datetime import datetime
 from functools import partial
 
 import qdarktheme
-from PySide6.QtCore import QTimer, QThread, Signal
+from PySide6.QtCore import QTimer, QThread, Signal, Qt
 from PySide6.QtWidgets import QMainWindow, QApplication, QHBoxLayout, QWidget, QVBoxLayout, QSplitter, QPushButton, \
-    QListWidget, QTextEdit, QDialog, QLineEdit, QListWidgetItem, QMessageBox, QComboBox
+    QListWidget, QTextEdit, QDialog, QLineEdit, QListWidgetItem, QMessageBox, QComboBox, QStyle
 from openai import AzureOpenAI, OpenAI
 
 from bubble_message import ChatWidget, BubbleMessage, MessageType
@@ -20,11 +20,35 @@ from ui import main_ui, main_rc
 
 ___not_use = main_rc.qt_resource_name
 
+
+def adapt_datetime_iso(date_time: datetime) -> str:
+    """
+    Convert a Python datetime.datetime into a timezone-naive ISO 8601 date string.
+    >>> adapt_datetime_iso(datetime(2023, 4, 5, 6, 7, 8, 9))
+    '2023-04-05T06:07:08.000009'
+    """
+    return date_time.isoformat()
+
+
+def convert_timestamp(time_stamp: bytes) -> datetime:
+    """
+    Convert an ISO 8601 formatted bytestring to a datetime.datetime object.
+    >>> convert_timestamp(b'2023-04-05T06:07:08.000009')
+    datetime.datetime(2023, 4, 5, 6, 7, 8, 9)
+    """
+    return datetime.strptime(time_stamp.decode("utf-8"), "%Y-%m-%dT%H:%M:%S.%f")
+
+
+sqlite3.register_adapter(datetime, adapt_datetime_iso)
+sqlite3.register_converter("timestamp", convert_timestamp)
+
 from loguru import logger
 
 home_dir = os.path.expanduser('~')
 
-logger.add(home_dir + "/chatgpt.log", rotation="50 MB", format="{time:YYYY-MM-DD HH:mm:ss.SSSZZ} | {level} | {message}",
+logger.add(home_dir + "/chatgpt.log",
+           rotation="50 MB",
+           format="{time:YYYY-MM-DD HH:mm:ss.SSSZZ} | {level} | {message}",
            level="DEBUG")
 
 os_name = platform.system().lower()
@@ -102,6 +126,17 @@ class MainWindow(QMainWindow):
         self.c_list.doubleClicked.connect(self.c_list_double_clicked)
         left_layout.addWidget(self.c_list)
 
+        c_list_tool = QWidget()
+        c_list_tool_layout = QHBoxLayout(c_list_tool)
+        c_list_tool_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        left_layout.addWidget(c_list_tool)
+
+        delete_clist_button = QPushButton()
+        delete_clist_button.setMaximumSize(24, 24)
+        delete_clist_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
+        delete_clist_button.clicked.connect(self.delete_clist_button_clicked)
+        c_list_tool_layout.addWidget(delete_clist_button)
+
         # 创建右侧布局：包含对话内容、输入框和发送按钮
         right_widget = QWidget()
         right_layout = QVBoxLayout()
@@ -160,6 +195,25 @@ class MainWindow(QMainWindow):
         self.wt = WorkerThread(target=self.fetch_c_list)
         self.wt.start()
         pass
+
+    def delete_c_list(self, cid):
+        logger.info(f"delete c_list: {cid}")
+        if cid is not None:
+            conn = sqlite3.connect(self.db_file)
+            c = conn.cursor()
+            try:
+                sql = """
+                        delete from chat_message where CID = ?
+                        """
+                c.execute(sql, (cid,))
+                conn.commit()
+                self.fetch_c_list()
+                self.init_new_chat()
+            except Exception as e:
+                logger.error(f'{traceback.format_exc()}')
+            finally:
+                c.close()
+                conn.close()
 
     def fetch_c_list(self):
         conn = sqlite3.connect(self.db_file)
@@ -502,6 +556,16 @@ class MainWindow(QMainWindow):
                 c.close()
                 conn.close()
 
+    def delete_clist_button_clicked(self):
+        item = self.c_list.currentItem()
+        if item is not None:
+            ret = QMessageBox.warning(self, '提示', '确认删除?',
+                                      buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if ret == QMessageBox.StandardButton.Yes:
+                cid = item.data(QListWidgetItem.ItemType.UserType)
+                self.wt = WorkerThread(target=self.delete_c_list, args=(cid,))
+                self.wt.start()
+
     def c_list_double_clicked(self, qModelIndex):
         item = self.c_list.item(qModelIndex.row())
         cid = item.data(QListWidgetItem.ItemType.UserType)
@@ -569,7 +633,7 @@ class MainWindow(QMainWindow):
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    qdarktheme.setup_theme("light")
+    qdarktheme.setup_theme(theme="light")
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
