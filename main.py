@@ -9,6 +9,7 @@ from functools import partial
 
 import qdarktheme
 from PySide6.QtCore import QTimer, QThread, Signal, Qt
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QMainWindow, QApplication, QHBoxLayout, QWidget, QVBoxLayout, QSplitter, QPushButton, \
     QListWidget, QTextEdit, QDialog, QLineEdit, QListWidgetItem, QMessageBox, QComboBox, QStyle
 from openai import AzureOpenAI, OpenAI
@@ -93,6 +94,7 @@ class MainWindow(QMainWindow):
         self.ui.setupUi(self)
 
         self.setWindowTitle("ChatGPT local")
+        self.setWindowIcon(QIcon(':ui/icon.png'))
 
         self.gpt_config = None
         self.conversation_id = None
